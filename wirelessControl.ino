@@ -25,12 +25,12 @@ bool channel2_socket2_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0
 bool channel2_socket2_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,1};
 bool channel2_socket3_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,1,1,0, 1,0,1,0, 1,0,1,0};
 bool channel2_socket3_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,1,1,0, 1,0,1,0, 1,0,1,1};
-// doesn't work? bool channel2_socket4_OnSignal[SIGNAL_LENGTH] =  {1,1,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,0};
-// doesn't work? bool channel2_socket4_OffSignal[SIGNAL_LENGTH] = {1,1,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,1};
+bool channel2_socket4_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,0};
+bool channel2_socket4_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,1};
 
 const int txPin = 8;
 
-volatile bool* activeSignal = channel2_socket2_OnSignal;
+volatile bool* activeSignal = channel2_socket1_OnSignal;
 int activeSignalIndex = -1; // The index of the bit currently being transmitted.
 
 int currentTxLevel = LOW;
@@ -63,14 +63,14 @@ void loop()
 {
   // Alternate on/off for testing.
   
-  activeSignal = channel2_socket2_OnSignal;
+  activeSignal = channel2_socket1_OnSignal;
   packetState = INIT;
   delay(250);
   
   packetState = NONE;
   delay(500);
   
-  activeSignal = channel2_socket2_OffSignal;
+  activeSignal = channel2_socket1_OffSignal;
   packetState = INIT;
   delay(250);
   
