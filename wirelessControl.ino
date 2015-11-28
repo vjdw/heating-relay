@@ -18,7 +18,7 @@
 // Packets consist of preamble > signal data > postamble.
 typedef enum { NONE, INIT, PREAMBLE, DATAHIGH, DATALOW, POSTAMBLE } PacketState;
 
-// These are the signals that control the remote sockets.
+// These are the signals that control the remote sockets..
 bool channel2_socket1_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,1,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0};
 bool channel2_socket1_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,1,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,1};
 bool channel2_socket2_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,0};
@@ -28,15 +28,23 @@ bool channel2_socket3_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,1
 bool channel2_socket4_OnSignal[SIGNAL_LENGTH] =  {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,0};
 bool channel2_socket4_OffSignal[SIGNAL_LENGTH] = {1,0,1,1, 1,0,1,0, 1,0,1,0, 1,0,1,1, 1,0,1,0, 1,0,1,1};
 
+////// BEGIN Globals for transmission state //////
 const int txPin = 8;
 
-volatile bool* activeSignal = channel2_socket1_OnSignal;
+volatile bool* activeSignal = channel2_socket1_OffSignal;
 int activeSignalIndex = -1; // The index of the bit currently being transmitted.
 
 int currentTxLevel = LOW;
 int timeRemainingAtCurrentTxLevelUS = 0;
 volatile PacketState packetState = INIT;
+////// END Globals for transmission state   //////
 
+////// BEGIN Globals for monitoring central heating state //////
+const int centralHeatingInPin = 12;
+const int analogCentralHeatingInPin = 5;
+int centralHeatingStateChangeCount = 0;
+bool currentConfirmedCentralHeatingState = false;
+////// END Globals for monitoring central heating state   //////
 
 ////////////////////////////////////////////////////////////////////////////////
 // Set up      timer1 as a 50 microsecond ISR timer
@@ -50,6 +58,8 @@ void setup()
   // Initialize the digital pin as an output,
   pinMode(txPin, OUTPUT);  
   digitalWrite(txPin, LOW);
+
+  pinMode(centralHeatingInPin, INPUT);
   
   // Initialize 50 us timer and attach isr to it
   Timer1.initialize(TIMER_US); 
@@ -61,19 +71,63 @@ void setup()
 ////////////////////////////////////////////////////////////////////////////////
 void loop()
 {
-  // Alternate on/off for testing.
-  
-  activeSignal = channel2_socket1_OnSignal;
+//  // Alternate on/off for testing.
+//  activeSignal = channel2_socket1_OnSignal;
+//  packetState = INIT;
+//  delay(250);
+//  packetState = NONE;
+//  delay(500);
+//  activeSignal = channel2_socket1_OffSignal;
+//  packetState = INIT;
+//  delay(250);
+//  packetState = NONE;
+//  delay(500);
+
+//bool lastReadCentralHeatingState = false;
+//bool currentConfirmedCentralHeatingState = false;
+
+  int observedAnalogCentralHeatingState = analogRead(analogCentralHeatingInPin);
+
+  // old way, using digital input pin:  bool observedCentralHeatingState = digitalRead(centralHeatingInPin);
+  // new way, analog:
+  bool observedCentralHeatingState = observedAnalogCentralHeatingState > 900;
+
+  if (observedCentralHeatingState != currentConfirmedCentralHeatingState)
+  {
+    centralHeatingStateChangeCount++;
+  }
+  else
+  {
+    centralHeatingStateChangeCount--;
+    if (centralHeatingStateChangeCount < 0)
+      centralHeatingStateChangeCount = 0;
+  }
+
+  Serial.println(" analogIn:" + String(observedAnalogCentralHeatingState) + " digitalIn:" + String(currentConfirmedCentralHeatingState) + " observed:" + String(observedCentralHeatingState) + " changeCount:" + String(centralHeatingStateChangeCount));
+
+  if (centralHeatingStateChangeCount > 9)
+  {
+    centralHeatingStateChangeCount = 0;
+    currentConfirmedCentralHeatingState = observedCentralHeatingState;
+
+    if (currentConfirmedCentralHeatingState)
+    {
+      sendSignal(channel2_socket1_OnSignal);
+    }
+    else
+    {
+      sendSignal(channel2_socket1_OffSignal);
+    }
+  }
+
+  delay(65);
+}
+
+void sendSignal(bool* socketSignal)
+{
+  activeSignal = socketSignal;
   packetState = INIT;
-  delay(250);
-  
-  packetState = NONE;
   delay(500);
-  
-  activeSignal = channel2_socket1_OffSignal;
-  packetState = INIT;
-  delay(250);
-  
   packetState = NONE;
   delay(500);
 }
