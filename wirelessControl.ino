@@ -11,7 +11,9 @@
 #define POSTAMBLE_HIGH_DURATION_US 416
 #define DATA_LEVEL_SHORT_US 400
 #define DATA_LEVEL_LONG_US 1250
+#define REPEAT_OFF_SIGNAL_MS 10800000 // 3 hours
 
+#define MAIN_LOOP_US 65
 #define TIMER_US 50
 #define SIGNAL_LENGTH 24
 
@@ -37,14 +39,19 @@ int activeSignalIndex = -1; // The index of the bit currently being transmitted.
 int currentTxLevel = LOW;
 int timeRemainingAtCurrentTxLevelUS = 0;
 volatile PacketState packetState = INIT;
+volatile bool StopBroadcast = true;
 ////// END Globals for transmission state   //////
 
 ////// BEGIN Globals for monitoring central heating state //////
 const int centralHeatingInPin = 12;
 const int analogCentralHeatingInPin = 5;
 int centralHeatingStateChangeCount = 0;
-bool currentConfirmedCentralHeatingState = false;
+int offOnOffCount = 0;
+bool confirmedCentralHeatingState = false;
 ////// END Globals for monitoring central heating state   //////
+
+long repeatOffSignalCountdown = REPEAT_OFF_SIGNAL_MS;
+int offOnOffTimer = 0;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Set up      timer1 as a 50 microsecond ISR timer
@@ -83,16 +90,20 @@ void loop()
 //  packetState = NONE;
 //  delay(500);
 
-//bool lastReadCentralHeatingState = false;
-//bool currentConfirmedCentralHeatingState = false;
+  delay(MAIN_LOOP_US);
+
+  offOnOffTimer -= MAIN_LOOP_US;
+  if (offOnOffTimer < 0)
+    offOnOffTimer = 0;
+
+  repeatOffSignalCountdown -= MAIN_LOOP_US;
+  if (repeatOffSignalCountdown < 0)
+    repeatOffSignalCountdown = 0;
 
   int observedAnalogCentralHeatingState = analogRead(analogCentralHeatingInPin);
+  bool observedCentralHeatingState = observedAnalogCentralHeatingState > 60;
 
-  // old way, using digital input pin:  bool observedCentralHeatingState = digitalRead(centralHeatingInPin);
-  // new way, analog:
-  bool observedCentralHeatingState = observedAnalogCentralHeatingState > 900;
-
-  if (observedCentralHeatingState != currentConfirmedCentralHeatingState)
+  if (observedCentralHeatingState != confirmedCentralHeatingState)
   {
     centralHeatingStateChangeCount++;
   }
@@ -103,32 +114,79 @@ void loop()
       centralHeatingStateChangeCount = 0;
   }
 
-  Serial.println(" analogIn:" + String(observedAnalogCentralHeatingState) + " digitalIn:" + String(currentConfirmedCentralHeatingState) + " observed:" + String(observedCentralHeatingState) + " changeCount:" + String(centralHeatingStateChangeCount));
+  //Serial.println(" analogIn:" + String(observedAnalogCentralHeatingState) + " digitalIn:" + String(confirmedCentralHeatingState) + " observed:" + String(observedCentralHeatingState) + " changeCount:" + String(centralHeatingStateChangeCount));
 
   if (centralHeatingStateChangeCount > 9)
   {
     centralHeatingStateChangeCount = 0;
-    currentConfirmedCentralHeatingState = observedCentralHeatingState;
+    confirmedCentralHeatingState = observedCentralHeatingState;
+    offOnOffCount++;
 
-    if (currentConfirmedCentralHeatingState)
+    // Start 7 second timer to check for Off-On-Off signal. 
+    if (offOnOffTimer == 0)
+      offOnOffTimer = 7000;
+  }
+  
+  if (offOnOffTimer < 1000 && offOnOffCount > 0)
+  {
+    if (confirmedCentralHeatingState)
     {
+      // Switch everything on.
       sendSignal(channel2_socket1_OnSignal);
+      delay(1250);
+      sendSignal(channel2_socket2_OnSignal);
+      delay(1250);
     }
     else
     {
-      sendSignal(channel2_socket1_OffSignal);
+      // Off-On-Off means we should leave the sitting room heater on.
+      bool leaveSittingRoomOn = offOnOffCount > 2;
+      if (leaveSittingRoomOn)
+      {
+        // Reset the repeat-signal 3 hour timer, so sitting room will stay on for 3 hours.
+        repeatOffSignalCountdown = REPEAT_OFF_SIGNAL_MS;
+      }
+      else
+      {
+        sendSignal(channel2_socket1_OffSignal);
+        delay(1250);
+      }
+      
+      // Always turn off spare room heater.
+      sendSignal(channel2_socket2_OffSignal);
+      delay(1250);
     }
+    
+    offOnOffTimer = offOnOffCount = 0;
+  }  
+  
+  if (repeatOffSignalCountdown == 0)
+  {
+    // For safety, only the off-state signal is repeated.  
+    if (!confirmedCentralHeatingState)
+    {
+      sendSignal(channel2_socket1_OffSignal);
+      delay(1250);
+      sendSignal(channel2_socket2_OffSignal);
+      delay(1250);
+    }
+    repeatOffSignalCountdown = REPEAT_OFF_SIGNAL_MS;
   }
-
-  delay(65);
 }
 
 void sendSignal(bool* socketSignal)
 {
+  StopBroadcast = false;
+    
   activeSignal = socketSignal;
+  
+  // Broadcast the active signal.
   packetState = INIT;
   delay(500);
+  
+  // Stop broadcast.
   packetState = NONE;
+  StopBroadcast = true;
   delay(500);
 }
 
@@ -151,6 +209,9 @@ void timerIsr()
 
 void moveToNextPacketState()
 {
+  if (StopBroadcast)
+    packetState = NONE;
+    
   switch (packetState)
   {
     case NONE:
